@@ -3,12 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Faceted Tree – Hoogspanningsstation</title>
+  <title>Faceted Tree – Import & Export (Hoogspanningsstation)</title>
   <style>
-    :root {
-      --bg:#f8fafc; --card:#fff; --ink:#0f172a; --muted:#64748b; --ring:#2563eb;
-      --ok:#16a34a; --shadow:0 10px 30px rgba(2,6,23,.08); --radius:16px;
-    }
+    :root { --bg:#f8fafc; --card:#fff; --ink:#0f172a; --muted:#64748b; --ring:#2563eb; --ok:#16a34a; --shadow:0 10px 30px rgba(2,6,23,.08); --radius:16px; }
     *{box-sizing:border-box}
     body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg);color:var(--ink)}
     header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,#fff,rgba(255,255,255,.85));border-bottom:1px solid #e2e8f0;padding:14px 16px;backdrop-filter:blur(6px)}
@@ -27,7 +24,7 @@
     .count{color:var(--muted);font-variant-numeric:tabular-nums}
 
     /* Controls */
-    .controls{display:flex;gap:12px;align-items:center;padding:10px 12px;border-bottom:1px solid #e2e8f0}
+    .controls{display:flex;gap:12px;align-items:center;padding:10px 12px;border-bottom:1px solid #e2e8f0;flex-wrap:wrap}
     .toggle{display:inline-flex;border:1px solid #e2e8f0;border-radius:999px;overflow:hidden}
     .toggle button{padding:6px 10px;border:0;background:#fff;cursor:pointer;font-size:12px}
     .toggle button.active{background:#eef2ff;color:#4338ca}
@@ -35,9 +32,12 @@
 
     /* Tree */
     .tree-panel{display:flex;flex-direction:column;min-height:500px}
-    .toolbar{padding:10px 12px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:12px}
+    .toolbar{padding:10px 12px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
     .legend{padding:10px 12px;color:var(--muted);font-size:12px;border-bottom:1px solid #e2e8f0;display:flex;gap:16px;flex-wrap:wrap}
     .legend .swatch{width:10px;height:10px;border-radius:999px;display:inline-block;margin-right:6px;vertical-align:middle}
+    .import-drop{display:none;position:fixed;inset:0;background:rgba(37,99,235,.08);border:2px dashed var(--ring);border-radius:8px;align-items:center;justify-content:center;z-index:50;color:#1e293b;font-size:18px}
+    .import-drop.active{display:flex}
+
     svg{display:block;width:100%;height:70vh;max-height:800px}
     .link{stroke:#cbd5e1;stroke-width:2;fill:none}
     .link.emph{stroke:#94a3b8;stroke-width:3}
@@ -50,7 +50,7 @@
   </style>
 </head>
 <body>
-<header><h1>Faceted Tree – Hoogspanningsstation (Discipline • Fase • Vlag • Hiërarchie)</h1></header>
+<header><h1>Faceted Tree – Import & Export (Hoogspanningsstation)</h1></header>
 
 <div class="wrap">
   <!-- FACETS -->
@@ -59,14 +59,15 @@
   <!-- TREE PANEL -->
   <section class="card tree-panel">
     <div class="controls">
-      <div style="margin-left:auto;display:flex;gap:12px;align-items:center;">
-        <label>Match binnen facet:</label>
-        <div class="toggle" id="facetMode">
-          <button data-mode="OR" class="active" title="Minstens één optie per facet">OR</button>
-          <button data-mode="AND" title="Alle gekozen opties binnen facet moeten voorkomen">AND</button>
-        </div>
-        <button class="btn" id="clearBtn">Wis filters</button>
+      <div class="toggle" id="facetMode">
+        <button data-mode="OR" class="active" title="Minstens één optie per facet">OR</button>
+        <button data-mode="AND" title="Alle gekozen opties binnen facet moeten voorkomen">AND</button>
       </div>
+      <button class="btn" id="clearBtn">Wis filters</button>
+      <button class="btn" id="exportBtn">Exporteer JSON</button>
+      <input type="file" id="fileInput" accept="application/json" style="display:none" />
+      <button class="btn" id="importBtn">Importeer JSON</button>
+      <span id="status" style="margin-left:auto;color:var(--muted);font-size:12px"></span>
     </div>
     <div class="toolbar">
       <label><input type="checkbox" id="hideNon"/> Verberg niet‑matchende knopen</label>
@@ -81,27 +82,23 @@
     <svg id="tree"></svg>
   </section>
 </div>
+<div class="import-drop" id="dropZone">Laat hier je JSON los om te importeren</div>
 
 <script>
-// ---------------------------- DATA ------------------------------------------
-// Boom + facetten: discipline (primair/secundair/telecom/civiel), fase (Fase 1/Fase 2), vlag (OGG), plus synthetisch facet: hiërarchie
-const NODES = [
+// ---------------------------- DEFAULT DATA ----------------------------------
+let NODES = [
   { id:'sys',  name:'Systeem',             parent:null,         discipline:'civiel',   fase:'Fase 1' },
-
   { id:'st1',  name:'Station A (150 kV)',  parent:'sys',        discipline:'civiel',   fase:'Fase 1' },
   { id:'bay1', name:'Bay 1 (Invoer)',      parent:'st1',        discipline:'primair',  fase:'Fase 1' },
   { id:'cb1',  name:'Schakelaar CB‑101',   parent:'bay1',       discipline:'primair',  fase:'Fase 1', vlag:'OGG' },
   { id:'ds1',  name:'Scheider DS‑101',     parent:'bay1',       discipline:'primair',  fase:'Fase 1' },
   { id:'ct1',  name:'Stroomtrafo CT‑101',  parent:'bay1',       discipline:'secundair',fase:'Fase 1' },
-
-  { id:'bay2', name:'Bay 2 (Uitvoer)',     parent:'st1',        discipline:'primair',  fase:'Fase 2' },
+  { id:'bay2', name:'Bay  2 (Uitvoer)',    parent:'st1',        discipline:'primair',  fase:'Fase 2' },
   { id:'cb2',  name:'Schakelaar CB‑102',   parent:'bay2',       discipline:'primair',  fase:'Fase 2', vlag:'OGG' },
   { id:'vt1',  name:'Spanningstrafo VT‑102',parent:'bay2',      discipline:'secundair',fase:'Fase 2' },
-
   { id:'bk1',  name:'Besturingskast BK‑1', parent:'st1',        discipline:'secundair',fase:'Fase 1' },
   { id:'tr1',  name:'Telecomrack TR‑1',    parent:'st1',        discipline:'telecom',  fase:'Fase 1' },
   { id:'fund1',name:'Fundatie gebouw',     parent:'st1',        discipline:'civiel',   fase:'Fase 1' },
-
   { id:'st2',  name:'Station B (380 kV)',  parent:'sys',        discipline:'civiel',   fase:'Fase 2' },
   { id:'bay3', name:'Bay 3 (Invoer)',      parent:'st2',        discipline:'primair',  fase:'Fase 2' },
   { id:'cb3',  name:'Schakelaar CB‑201',   parent:'bay3',       discipline:'primair',  fase:'Fase 2', vlag:'OGG' },
@@ -112,7 +109,6 @@ const NODES = [
   { id:'fund2',name:'Fundatie veld',       parent:'st2',        discipline:'civiel',   fase:'Fase 2' }
 ];
 
-// Facetdefinities
 const FACETS = [
   { key:'discipline', label:'Discipline', type:'value' },
   { key:'fase',       label:'Categorie: Fase', type:'value' },
@@ -121,40 +117,41 @@ const FACETS = [
 ];
 
 // ---------------------------- GRAPH PREP ------------------------------------
-const byId = new Map(NODES.map(n=>[n.id,n]));
-const children = new Map(NODES.map(n=>[n.id,[]]));
-for (const n of NODES) if (n.parent) children.get(n.parent).push(n);
-const roots = NODES.filter(n=>n.parent===null);
-const collapsed = new Set();
+let byId, children, roots, collapsed = new Set();
+function rebuildIndexes(){
+  byId = new Map(NODES.map(n=>[n.id,n]));
+  children = new Map(NODES.map(n=>[n.id,[]]));
+  for(const n of NODES) if(n.parent) children.get(n.parent)?.push(n);
+  roots = NODES.filter(n=>n.parent===null);
+}
+rebuildIndexes();
 
 function pathToRoot(node){ const arr=[]; let cur=node; while(cur){ arr.unshift(cur); cur = cur.parent? byId.get(cur.parent) : null; } return arr; }
 
 // ---------------------------- STATE -----------------------------------------
 const state = { facetMode:'OR', selected:Object.fromEntries(FACETS.map(f=>[f.key,new Set()])), hideNon:false, emphPath:true };
-
-// Universe of facet values
-const ALL_VALUES = Object.fromEntries(FACETS.map(f=>[f.key,new Set()]));
-for (const n of NODES){
-  for (const f of FACETS){
-    if (f.type==='value'){
-      const v = n[f.key]; if (v!=null) ALL_VALUES[f.key].add(String(v));
-    } else if (f.type==='hierarchical'){
-      f.map(n).forEach(x=>ALL_VALUES[f.key].add(String(x)));
+let ALL_VALUES = {};
+function rebuildFacetUniverse(){
+  ALL_VALUES = Object.fromEntries(FACETS.map(f=>[f.key,new Set()]));
+  for (const n of NODES){
+    for (const f of FACETS){
+      if (f.type==='value'){ const v=n[f.key]; if(v!=null) ALL_VALUES[f.key].add(String(v)); }
+      else if (f.type==='hierarchical'){ f.map(n).forEach(x=>ALL_VALUES[f.key].add(String(x))); }
     }
   }
 }
+rebuildFacetUniverse();
 
 // ---------------------------- FILTERING -------------------------------------
 function nodeMatches(node){
   for (const f of FACETS){
-    const sel = state.selected[f.key];
-    if (!sel || sel.size===0) continue;
+    const sel = state.selected[f.key]; if(!sel || sel.size===0) continue;
     if (f.type==='value'){
-      const val = node[f.key]; if (val==null) return false;
+      const val=node[f.key]; if(val==null) return false;
       if (state.facetMode==='OR'){ if (![...sel].some(v=>v===String(val))) return false; }
       else { if (![...sel].every(v=>v===String(val))) return false; }
     } else if (f.type==='hierarchical'){
-      const vals = new Set(f.map(node).map(String));
+      const vals=new Set(f.map(node).map(String));
       if (state.facetMode==='OR'){ if (![...sel].some(v=>vals.has(v))) return false; }
       else { if (![...sel].every(v=>vals.has(v))) return false; }
     }
@@ -165,15 +162,14 @@ function nodeMatches(node){
 function computeFacetCounts(){
   const counts = {}; for (const f of FACETS) counts[f.key] = Object.fromEntries([...ALL_VALUES[f.key]].map(v=>[v,0]));
   for (const f of FACETS){
-    // filter by all other facets
     const partial = NODES.filter(n=> FACETS.every(ff=>{
       if (ff.key===f.key) return true; const sel = state.selected[ff.key]; if (!sel || sel.size===0) return true;
-      if (ff.type==='value'){ const val = n[ff.key]; if (val==null) return false; return state.facetMode==='OR' ? [...sel].some(v=>v===String(val)) : [...sel].every(v=>v===String(val)); }
-      if (ff.type==='hierarchical'){ const vals = new Set(ff.map(n).map(String)); return state.facetMode==='OR' ? [...sel].some(v=>vals.has(v)) : [...sel].every(v=>vals.has(v)); }
+      if (ff.type==='value'){ const val=n[ff.key]; if(val==null) return false; return state.facetMode==='OR' ? [...sel].some(v=>v===String(val)) : [...sel].every(v=>v===String(val)); }
+      if (ff.type==='hierarchical'){ const vals=new Set(ff.map(n).map(String)); return state.facetMode==='OR' ? [...sel].some(v=>vals.has(v)) : [...sel].every(v=>vals.has(v)); }
       return true;
     }));
     for (const n of partial){
-      if (f.type==='value'){ const v = n[f.key]; if (v!=null) counts[f.key][String(v)] = (counts[f.key][String(v)]||0)+1; }
+      if (f.type==='value'){ const v=n[f.key]; if(v!=null) counts[f.key][String(v)] = (counts[f.key][String(v)]||0)+1; }
       if (f.type==='hierarchical'){ for (const v of new Set(FACETS.find(x=>x.key==='hier').map(n).map(String))) counts[f.key][v] = (counts[f.key][v]||0)+1; }
     }
   }
@@ -201,6 +197,7 @@ function computeLayout(){
 // ---------------------------- RENDERING --------------------------------------
 const facetsEl = document.getElementById('facets');
 const svg = document.getElementById('tree');
+const statusEl = document.getElementById('status');
 
 function renderFacets(){
   const counts = computeFacetCounts();
@@ -229,7 +226,6 @@ function renderTree(){
   const hideNon = document.getElementById('hideNon').checked;
   const emphPath = document.getElementById('emphPath').checked;
 
-  // Links
   for (const L of linkPos){
     const path = document.createElementNS('http://www.w3.org/2000/svg','path');
     const mx=(L.x1+L.x2)/2; const d=`M ${L.x1},${L.y1} C ${mx},${L.y1} ${mx},${L.y2} ${L.x2},${L.y2}`;
@@ -239,7 +235,9 @@ function renderTree(){
     svg.appendChild(path);
   }
 
-  // Nodes
+  for (const n of NODES){
+    const pos = byId.get(n.id) ? computeLayout.cache?.nodePos?.get(n.id) || null : null; // not used; we'll use our nodePos
+  }
   for (const n of NODES){
     const pos = nodePos.get(n.id); if (!pos) continue; // hidden by collapse
     const g = document.createElementNS('http://www.w3.org/2000/svg','g');
@@ -247,11 +245,11 @@ function renderTree(){
     const dim = !isMatch && !hideNon;
     g.setAttribute('class','node'+(isMatch?' match':'')+(dim?' dim':''));
     g.setAttribute('transform',`translate(${pos.x},${pos.y})`);
-    g.addEventListener('click',(e)=>{ e.stopPropagation(); if(children.get(n.id).length) toggleCollapse(n.id); });
+    g.addEventListener('click',(e)=>{ e.stopPropagation(); if((children.get(n.id)||[]).length) toggleCollapse(n.id); });
 
     const circle = document.createElementNS('http://www.w3.org/2000/svg','circle'); g.appendChild(circle);
     const label = document.createElementNS('http://www.w3.org/2000/svg','text');
-    label.setAttribute('x',12); label.textContent = n.name + (children.get(n.id).length ? (collapsed.has(n.id)?'  ▶':'  ▼') : '');
+    label.setAttribute('x',12); label.textContent = n.name + ((children.get(n.id)||[]).length ? (collapsed.has(n.id)?'  ▶':'  ▼') : '');
     g.appendChild(label);
     svg.appendChild(g);
   }
@@ -263,17 +261,79 @@ function toggleCollapse(id){ if (collapsed.has(id)) collapsed.delete(id); else c
 
 function fitToContent(){ const bbox=svg.getBBox(); const pad=20; const minX=Math.max(0,bbox.x-pad), minY=Math.max(0,bbox.y-pad); const w=Math.max(100,bbox.width+pad*2), h=Math.max(100,bbox.height+pad*2); svg.setAttribute('viewBox',`${minX} ${minY} ${w} ${h}`); }
 
-function update(){ renderFacets(); renderTree(); }
+function update(){ rebuildFacetUniverse(); renderFacets(); renderTree(); status(''); }
+
+// ---------------------------- EXPORT ----------------------------------------
+function currentSelection(){ const active=Object.fromEntries(Object.keys(state.selected).map(k=>[k,[...state.selected[k]]])); const any=Object.values(active).some(a=>a.length>0); return {active,any}; }
+function buildExport(){
+  const { any } = currentSelection();
+  const ids = new Set((any ? NODES.filter(nodeMatches) : NODES).map(n=>n.id));
+  const nodes = (any ? NODES.filter(n=>ids.has(n.id)) : NODES).map(n=>({ id:n.id, name:n.name, parent:n.parent ?? null, discipline:n.discipline ?? null, fase:n.fase ?? null, vlag:n.vlag ?? null }));
+  const links = NODES.filter(n=>n.parent && ids.has(n.id) && ids.has(n.parent)).map(n=>({ from:n.parent, to:n.id }));
+  return { version:1, generatedAt:new Date().toISOString(), filters:Object.fromEntries(Object.entries(state.selected).map(([k,set])=>[k,[...set]])), count:{ nodes:nodes.length, links:links.length }, nodes, links };
+}
+function downloadJSON(filename, obj){ const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },0); }
+
+// ---------------------------- IMPORT ----------------------------------------
+function status(msg){ statusEl.textContent = msg || ''; }
+function parseImported(json){
+  // Accept {nodes:[...], links:[...]}, optionally {filters:...}
+  if (!json || !Array.isArray(json.nodes)) throw new Error('JSON mist "nodes" array');
+  const nodes = json.nodes.map(n=>({
+    id: String(n.id),
+    name: String(n.name ?? n.id),
+    parent: n.parent===undefined? null : (n.parent===null? null : String(n.parent)),
+    discipline: n.discipline ? String(n.discipline) : null,
+    fase: n.fase ? String(n.fase) : null,
+    vlag: n.vlag ? String(n.vlag) : null
+  }));
+  // Build parent from links if provided
+  if (Array.isArray(json.links)){
+    const pmap = new Map();
+    for (const l of json.links){ const from=String(l.from), to=String(l.to); if (pmap.has(to) && pmap.get(to)!==from) throw new Error(`Node ${to} heeft meerdere ouders in links`); pmap.set(to, from); }
+    for (const n of nodes){ if (pmap.has(n.id)) n.parent = pmap.get(n.id); }
+  }
+  // Validate: ids unique, parents exist or null, no cycles
+  const ids = new Set(); for (const n of nodes){ if (ids.has(n.id)) throw new Error(`Dubbele id: ${n.id}`); ids.add(n.id); }
+  const idSet = new Set(nodes.map(n=>n.id));
+  for (const n of nodes){ if (n.parent && !idSet.has(n.parent)) throw new Error(`Parent niet gevonden voor ${n.id}: ${n.parent}`); }
+  // Cycle check via DFS
+  const kids = new Map([...idSet].map(id=>[id,[]]));
+  for (const n of nodes) if (n.parent) kids.get(n.parent).push(n.id);
+  const seen=new Set(), stack=new Set();
+  function dfs(u){ if (stack.has(u)) throw new Error('Cyclische relatie gedetecteerd bij '+u); if (seen.has(u)) return; stack.add(u); for (const v of kids.get(u)||[]) dfs(v); stack.delete(u); seen.add(u); }
+  for (const n of nodes){ if (!n.parent) dfs(n.id); }
+  return nodes;
+}
+async function importFromFile(file){
+  try{
+    const text = await file.text();
+    const json = JSON.parse(text);
+    const nodes = parseImported(json);
+    NODES = nodes; collapsed = new Set(); rebuildIndexes(); state.selected = Object.fromEntries(FACETS.map(f=>[f.key,new Set()])); update(); status(`Geïmporteerd: ${nodes.length} nodes`);
+  } catch(err){ console.error(err); alert('Import mislukt: '+err.message); status('Import mislukt'); }
+}
+
+// Drag & drop
+const drop = document.getElementById('dropZone');
+['dragenter','dragover'].forEach(ev=>document.addEventListener(ev,(e)=>{ e.preventDefault(); drop.classList.add('active'); }));
+['dragleave','drop'].forEach(ev=>document.addEventListener(ev,(e)=>{ e.preventDefault(); drop.classList.remove('active'); }));
+drop.addEventListener('drop',(e)=>{ const file = e.dataTransfer.files?.[0]; if(file) importFromFile(file); });
 
 // ---------------------------- CONTROLS --------------------------------------
-const clearBtn=document.getElementById('clearBtn'); clearBtn.onclick=()=>{ for (const f of FACETS) state.selected[f.key].clear(); update(); };
+document.getElementById('clearBtn').onclick=()=>{ for(const f of FACETS) state.selected[f.key].clear(); update(); };
 
-document.getElementById('facetMode').addEventListener('click',(e)=>{ if(e.target.tagName!=='BUTTON') return; for(const b of e.currentTarget.querySelectorAll('button')) b.classList.remove('active'); e.target.classList.add('active'); state.facetMode=e.target.dataset.mode; update(); });
+document.getElementById('exportBtn').onclick=()=>{ const data=buildExport(); const name = Object.values(data.filters).some(a=>a.length) ? 'hoogspanningsstation-filter.json' : 'hoogspanningsstation-all.json'; downloadJSON(name,data); };
+
+const fileInput = document.getElementById('fileInput');
+fileInput.onchange = ()=>{ const f=fileInput.files?.[0]; if(f) importFromFile(f); };
+document.getElementById('importBtn').onclick=()=> fileInput.click();
+
+const facetMode = document.getElementById('facetMode');
+facetMode.addEventListener('click',(e)=>{ if(e.target.tagName!=='BUTTON') return; for(const b of facetMode.querySelectorAll('button')) b.classList.remove('active'); e.target.classList.add('active'); state.facetMode=e.target.dataset.mode; update(); });
 
 document.getElementById('hideNon').onchange=(e)=>{ state.hideNon=e.target.checked; renderTree(); };
-
 document.getElementById('emphPath').onchange=()=> renderTree();
-
 document.getElementById('autoFit').onchange=()=> renderTree();
 
 // ---------------------------- INIT ------------------------------------------
