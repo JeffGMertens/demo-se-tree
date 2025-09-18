@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Faceted Tree – Hoogspanningsstation</title>
+  <style>
+    :root {
+      --bg:#f8fafc; --card:#fff; --ink:#0f172a; --muted:#64748b; --ring:#2563eb;
+      --ok:#16a34a; --shadow:0 10px 30px rgba(2,6,23,.08); --radius:16px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg);color:var(--ink)}
+    header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,#fff,rgba(255,255,255,.85));border-bottom:1px solid #e2e8f0;padding:14px 16px;backdrop-filter:blur(6px)}
+    h1{margin:0;font-size:18px}
+    .wrap{max-width:1300px;margin:0 auto;padding:16px;display:grid;gap:16px;grid-template-columns:320px 1fr}
+    @media (max-width:1024px){.wrap{grid-template-columns:1fr}}
+    .card{background:var(--card);border:1px solid #e2e8f0;border-radius:var(--radius);box-shadow:var(--shadow)}
+
+    /* Facets */
+    .facets{padding:14px;position:sticky;top:78px;max-height:calc(100dvh - 100px);overflow:auto}
+    .facet{padding:8px 4px}
+    .facet+.facet{border-top:1px dashed #e2e8f0;margin-top:10px;padding-top:14px}
+    .facet h3{margin:0 0 8px;font-size:13px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+    .option{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;cursor:pointer}
+    .option:hover{background:#f1f5f9}
+    .count{color:var(--muted);font-variant-numeric:tabular-nums}
+
+    /* Controls */
+    .controls{display:flex;gap:12px;align-items:center;padding:10px 12px;border-bottom:1px solid #e2e8f0}
+    .toggle{display:inline-flex;border:1px solid #e2e8f0;border-radius:999px;overflow:hidden}
+    .toggle button{padding:6px 10px;border:0;background:#fff;cursor:pointer;font-size:12px}
+    .toggle button.active{background:#eef2ff;color:#4338ca}
+    .btn{appearance:none;border:1px solid #e2e8f0;background:#fff;border-radius:10px;padding:8px 10px;cursor:pointer}
+
+    /* Tree */
+    .tree-panel{display:flex;flex-direction:column;min-height:500px}
+    .toolbar{padding:10px 12px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:12px}
+    .legend{padding:10px 12px;color:var(--muted);font-size:12px;border-bottom:1px solid #e2e8f0;display:flex;gap:16px;flex-wrap:wrap}
+    .legend .swatch{width:10px;height:10px;border-radius:999px;display:inline-block;margin-right:6px;vertical-align:middle}
+    svg{display:block;width:100%;height:70vh;max-height:800px}
+    .link{stroke:#cbd5e1;stroke-width:2;fill:none}
+    .link.emph{stroke:#94a3b8;stroke-width:3}
+    .node{cursor:pointer}
+    .node circle{r:7;fill:#fff;stroke:#94a3b8;stroke-width:2}
+    .node.match circle{stroke:var(--ok)}
+    .node.dim circle{opacity:.35}
+    .node text{font-size:12px;dominant-baseline:middle;fill:var(--ink)}
+    .node.dim text{opacity:.35}
+  </style>
+</head>
+<body>
+<header><h1>Faceted Tree – Hoogspanningsstation (Discipline • Fase • Vlag • Hiërarchie)</h1></header>
+
+<div class="wrap">
+  <!-- FACETS -->
+  <aside class="card facets" id="facets"></aside>
+
+  <!-- TREE PANEL -->
+  <section class="card tree-panel">
+    <div class="controls">
+      <div style="margin-left:auto;display:flex;gap:12px;align-items:center;">
+        <label>Match binnen facet:</label>
+        <div class="toggle" id="facetMode">
+          <button data-mode="OR" class="active" title="Minstens één optie per facet">OR</button>
+          <button data-mode="AND" title="Alle gekozen opties binnen facet moeten voorkomen">AND</button>
+        </div>
+        <button class="btn" id="clearBtn">Wis filters</button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <label><input type="checkbox" id="hideNon"/> Verberg niet‑matchende knopen</label>
+      <label><input type="checkbox" id="emphPath" checked/> Benadruk paden naar matches</label>
+      <label><input type="checkbox" id="autoFit" checked/> Auto-fit</label>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:transparent;border:2px solid var(--ok);"></span>match</span>
+      <span><span class="swatch" style="background:#94a3b8;"></span>verbinding naar match</span>
+      <span><span class="swatch" style="background:#cbd5e1;"></span>overige verbinding</span>
+    </div>
+    <svg id="tree"></svg>
+  </section>
+</div>
+
+<script>
+// ---------------------------- DATA ------------------------------------------
+// Boom + facetten: discipline (primair/secundair/telecom/civiel), fase (Fase 1/Fase 2), vlag (OGG), plus synthetisch facet: hiërarchie
+const NODES = [
+  { id:'sys',  name:'Systeem',             parent:null,         discipline:'civiel',   fase:'Fase 1' },
+
+  { id:'st1',  name:'Station A (150 kV)',  parent:'sys',        discipline:'civiel',   fase:'Fase 1' },
+  { id:'bay1', name:'Bay 1 (Invoer)',      parent:'st1',        discipline:'primair',  fase:'Fase 1' },
+  { id:'cb1',  name:'Schakelaar CB‑101',   parent:'bay1',       discipline:'primair',  fase:'Fase 1', vlag:'OGG' },
+  { id:'ds1',  name:'Scheider DS‑101',     parent:'bay1',       discipline:'primair',  fase:'Fase 1' },
+  { id:'ct1',  name:'Stroomtrafo CT‑101',  parent:'bay1',       discipline:'secundair',fase:'Fase 1' },
+
+  { id:'bay2', name:'Bay 2 (Uitvoer)',     parent:'st1',        discipline:'primair',  fase:'Fase 2' },
+  { id:'cb2',  name:'Schakelaar CB‑102',   parent:'bay2',       discipline:'primair',  fase:'Fase 2', vlag:'OGG' },
+  { id:'vt1',  name:'Spanningstrafo VT‑102',parent:'bay2',      discipline:'secundair',fase:'Fase 2' },
+
+  { id:'bk1',  name:'Besturingskast BK‑1', parent:'st1',        discipline:'secundair',fase:'Fase 1' },
+  { id:'tr1',  name:'Telecomrack TR‑1',    parent:'st1',        discipline:'telecom',  fase:'Fase 1' },
+  { id:'fund1',name:'Fundatie gebouw',     parent:'st1',        discipline:'civiel',   fase:'Fase 1' },
+
+  { id:'st2',  name:'Station B (380 kV)',  parent:'sys',        discipline:'civiel',   fase:'Fase 2' },
+  { id:'bay3', name:'Bay 3 (Invoer)',      parent:'st2',        discipline:'primair',  fase:'Fase 2' },
+  { id:'cb3',  name:'Schakelaar CB‑201',   parent:'bay3',       discipline:'primair',  fase:'Fase 2', vlag:'OGG' },
+  { id:'ds3',  name:'Scheider DS‑201',     parent:'bay3',       discipline:'primair',  fase:'Fase 2' },
+  { id:'ct3',  name:'Stroomtrafo CT‑201',  parent:'bay3',       discipline:'secundair',fase:'Fase 2' },
+  { id:'bk2',  name:'Besturingskast BK‑2', parent:'st2',        discipline:'secundair',fase:'Fase 2' },
+  { id:'tm1',  name:'Telecommast TM‑1',    parent:'st2',        discipline:'telecom',  fase:'Fase 2', vlag:'OGG' },
+  { id:'fund2',name:'Fundatie veld',       parent:'st2',        discipline:'civiel',   fase:'Fase 2' }
+];
+
+// Facetdefinities
+const FACETS = [
+  { key:'discipline', label:'Discipline', type:'value' },
+  { key:'fase',       label:'Categorie: Fase', type:'value' },
+  { key:'vlag',       label:'Vlag', type:'value' },
+  { key:'hier',       label:'Hiërarchie', type:'hierarchical', map:(node)=> pathToRoot(node).map(n=>n.name) }
+];
+
+// ---------------------------- GRAPH PREP ------------------------------------
+const byId = new Map(NODES.map(n=>[n.id,n]));
+const children = new Map(NODES.map(n=>[n.id,[]]));
+for (const n of NODES) if (n.parent) children.get(n.parent).push(n);
+const roots = NODES.filter(n=>n.parent===null);
+const collapsed = new Set();
+
+function pathToRoot(node){ const arr=[]; let cur=node; while(cur){ arr.unshift(cur); cur = cur.parent? byId.get(cur.parent) : null; } return arr; }
+
+// ---------------------------- STATE -----------------------------------------
+const state = { facetMode:'OR', selected:Object.fromEntries(FACETS.map(f=>[f.key,new Set()])), hideNon:false, emphPath:true };
+
+// Universe of facet values
+const ALL_VALUES = Object.fromEntries(FACETS.map(f=>[f.key,new Set()]));
+for (const n of NODES){
+  for (const f of FACETS){
+    if (f.type==='value'){
+      const v = n[f.key]; if (v!=null) ALL_VALUES[f.key].add(String(v));
+    } else if (f.type==='hierarchical'){
+      f.map(n).forEach(x=>ALL_VALUES[f.key].add(String(x)));
+    }
+  }
+}
+
+// ---------------------------- FILTERING -------------------------------------
+function nodeMatches(node){
+  for (const f of FACETS){
+    const sel = state.selected[f.key];
+    if (!sel || sel.size===0) continue;
+    if (f.type==='value'){
+      const val = node[f.key]; if (val==null) return false;
+      if (state.facetMode==='OR'){ if (![...sel].some(v=>v===String(val))) return false; }
+      else { if (![...sel].every(v=>v===String(val))) return false; }
+    } else if (f.type==='hierarchical'){
+      const vals = new Set(f.map(node).map(String));
+      if (state.facetMode==='OR'){ if (![...sel].some(v=>vals.has(v))) return false; }
+      else { if (![...sel].every(v=>vals.has(v))) return false; }
+    }
+  }
+  return true;
+}
+
+function computeFacetCounts(){
+  const counts = {}; for (const f of FACETS) counts[f.key] = Object.fromEntries([...ALL_VALUES[f.key]].map(v=>[v,0]));
+  for (const f of FACETS){
+    // filter by all other facets
+    const partial = NODES.filter(n=> FACETS.every(ff=>{
+      if (ff.key===f.key) return true; const sel = state.selected[ff.key]; if (!sel || sel.size===0) return true;
+      if (ff.type==='value'){ const val = n[ff.key]; if (val==null) return false; return state.facetMode==='OR' ? [...sel].some(v=>v===String(val)) : [...sel].every(v=>v===String(val)); }
+      if (ff.type==='hierarchical'){ const vals = new Set(ff.map(n).map(String)); return state.facetMode==='OR' ? [...sel].some(v=>vals.has(v)) : [...sel].every(v=>vals.has(v)); }
+      return true;
+    }));
+    for (const n of partial){
+      if (f.type==='value'){ const v = n[f.key]; if (v!=null) counts[f.key][String(v)] = (counts[f.key][String(v)]||0)+1; }
+      if (f.type==='hierarchical'){ for (const v of new Set(FACETS.find(x=>x.key==='hier').map(n).map(String))) counts[f.key][v] = (counts[f.key][v]||0)+1; }
+    }
+  }
+  return counts;
+}
+
+// ---------------------------- LAYOUT (tidy tree) ----------------------------
+function computeLayout(){
+  const nodePos = new Map(); const linkPos=[]; const depthGap=160, levelGap=60; let yCursor=0;
+  function isHiddenByCollapse(n){ let cur=n; while(cur && cur.parent){ if (collapsed.has(cur.parent)) return true; cur = byId.get(cur.parent);} return false; }
+  function visibleChildren(id){ return (children.get(id)||[]).filter(ch=>!isHiddenByCollapse(ch)); }
+  function dfs(node,depth){
+    const kids = visibleChildren(node.id);
+    if (kids.length===0){ const y = yCursor++*levelGap+30; nodePos.set(node.id,{x:depth*depthGap+40,y}); return {min:y,max:y,y}; }
+    let min=Infinity,max=-Infinity; const spans=[];
+    for (const k of kids){ const span = dfs(k,depth+1); spans.push({k,span}); min=Math.min(min,span.min); max=Math.max(max,span.max); }
+    const y=(min+max)/2; nodePos.set(node.id,{x:depth*depthGap+40,y});
+    for (const {k} of spans){ const p=nodePos.get(node.id), c=nodePos.get(k.id); linkPos.push({x1:p.x,y1:p.y,x2:c.x,y2:c.y,pid:node.id,cid:k.id}); }
+    return {min,max,y};
+  }
+  for (const r of roots) dfs(r,0);
+  return {nodePos,linkPos,height:Math.max(300,(yCursor+1)*levelGap)};
+}
+
+// ---------------------------- RENDERING --------------------------------------
+const facetsEl = document.getElementById('facets');
+const svg = document.getElementById('tree');
+
+function renderFacets(){
+  const counts = computeFacetCounts();
+  facetsEl.innerHTML='';
+  for (const f of FACETS){
+    const sec=document.createElement('section'); sec.className='facet';
+    const h=document.createElement('h3'); h.textContent=f.label; sec.appendChild(h);
+    const vals=[...ALL_VALUES[f.key]].sort((a,b)=>a.localeCompare(b,'nl'));
+    for (const v of vals){
+      const lab=document.createElement('label'); lab.className='option';
+      const input=document.createElement('input'); input.type='checkbox'; input.checked=state.selected[f.key].has(v);
+      input.onchange=()=>{ if(input.checked) state.selected[f.key].add(v); else state.selected[f.key].delete(v); update(); };
+      const span=document.createElement('span'); span.textContent=v;
+      const cnt=document.createElement('span'); cnt.className='count'; cnt.textContent=counts[f.key][v]||0;
+      lab.appendChild(input); lab.appendChild(span); lab.appendChild(cnt); sec.appendChild(lab);
+    }
+    facetsEl.appendChild(sec);
+  }
+}
+
+function clearSVG(){ while(svg.firstChild) svg.removeChild(svg.firstChild); }
+
+function renderTree(){
+  const {nodePos,linkPos,height} = computeLayout(); svg.setAttribute('height',height); clearSVG();
+  const matches = new Set(NODES.filter(nodeMatches).map(n=>n.id));
+  const hideNon = document.getElementById('hideNon').checked;
+  const emphPath = document.getElementById('emphPath').checked;
+
+  // Links
+  for (const L of linkPos){
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    const mx=(L.x1+L.x2)/2; const d=`M ${L.x1},${L.y1} C ${mx},${L.y1} ${mx},${L.y2} ${L.x2},${L.y2}`;
+    path.setAttribute('d',d);
+    const emph = emphPath && (matches.has(L.cid) || matches.has(L.pid));
+    path.setAttribute('class', emph? 'link emph':'link');
+    svg.appendChild(path);
+  }
+
+  // Nodes
+  for (const n of NODES){
+    const pos = nodePos.get(n.id); if (!pos) continue; // hidden by collapse
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    const isMatch = matches.has(n.id);
+    const dim = !isMatch && !hideNon;
+    g.setAttribute('class','node'+(isMatch?' match':'')+(dim?' dim':''));
+    g.setAttribute('transform',`translate(${pos.x},${pos.y})`);
+    g.addEventListener('click',(e)=>{ e.stopPropagation(); if(children.get(n.id).length) toggleCollapse(n.id); });
+
+    const circle = document.createElementNS('http://www.w3.org/2000/svg','circle'); g.appendChild(circle);
+    const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+    label.setAttribute('x',12); label.textContent = n.name + (children.get(n.id).length ? (collapsed.has(n.id)?'  ▶':'  ▼') : '');
+    g.appendChild(label);
+    svg.appendChild(g);
+  }
+
+  if (document.getElementById('autoFit').checked) fitToContent();
+}
+
+function toggleCollapse(id){ if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id); renderTree(); }
+
+function fitToContent(){ const bbox=svg.getBBox(); const pad=20; const minX=Math.max(0,bbox.x-pad), minY=Math.max(0,bbox.y-pad); const w=Math.max(100,bbox.width+pad*2), h=Math.max(100,bbox.height+pad*2); svg.setAttribute('viewBox',`${minX} ${minY} ${w} ${h}`); }
+
+function update(){ renderFacets(); renderTree(); }
+
+// ---------------------------- CONTROLS --------------------------------------
+const clearBtn=document.getElementById('clearBtn'); clearBtn.onclick=()=>{ for (const f of FACETS) state.selected[f.key].clear(); update(); };
+
+document.getElementById('facetMode').addEventListener('click',(e)=>{ if(e.target.tagName!=='BUTTON') return; for(const b of e.currentTarget.querySelectorAll('button')) b.classList.remove('active'); e.target.classList.add('active'); state.facetMode=e.target.dataset.mode; update(); });
+
+document.getElementById('hideNon').onchange=(e)=>{ state.hideNon=e.target.checked; renderTree(); };
+
+document.getElementById('emphPath').onchange=()=> renderTree();
+
+document.getElementById('autoFit').onchange=()=> renderTree();
+
+// ---------------------------- INIT ------------------------------------------
+update();
+</script>
+</body>
+</html>
